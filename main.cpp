@@ -14,8 +14,8 @@ double getValidDouble(const string& prompt) {
             return value;
         } else {
             cout << "Invalid input. Please enter a number.\n";
-            cin.clear(); // Clear error flag
-            cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Discard bad input
+            cin.clear(); 
+            cin.ignore(numeric_limits<streamsize>::max(), '\n'); 
         }
     }
 }
@@ -29,10 +29,9 @@ void printMenu() {
     cout << "3. Add Voltage Source\n";
     cout << "4. Solve Circuit\n";
     cout << "5. Save Circuit\n";
-    cout << "6. Load Circuit\n";
+    cout << "6. Load Circuit (Auto-Solves)\n"; 
     cout << "7. Clear Circuit\n";
     cout << "8. Visualize Circuit (Text Graph)\n";
-    cout << "9. Generate Graphviz Code (Image)\n"; 
     cout << "0. Exit\n";
     cout << "========================================\n";
     cout << "Enter choice: ";
@@ -93,9 +92,13 @@ int main() {
                 circuit.saveCircuit(filename);
                 break;
 
-            case 6:
+            case 6: // UPDATED: Auto-Solve after loading
                 cout << "Enter filename to load: "; cin >> filename;
                 circuit.loadCircuit(filename);
+                // Automatically solve and show results to the user
+                cout << "Auto-solving loaded circuit...\n";
+                circuit.solve();
+                circuit.displayResults();
                 break;
 
             case 7:
@@ -103,14 +106,10 @@ int main() {
                 cout << "Circuit cleared.\n";
                 break;
             
-            // Visualization Options
             case 8:
                 circuit.visualizeCircuit();
                 break;
             
-            case 9:
-                circuit.exportGraphviz();
-                break;
 
             case 0:
                 cout << "Exiting.\n";
@@ -121,7 +120,6 @@ int main() {
             }
         }
         catch (const exception& e) {
-            // Catch any error thrown by the classes
             cout << "\n[ERROR]: " << e.what() << "\n";
         }
     }
