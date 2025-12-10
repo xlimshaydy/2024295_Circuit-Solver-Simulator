@@ -20,9 +20,9 @@ enum ComponentType {
     VOLTAGE_SOURCE
 };
 
-// ==========================================
+
 // 1. Component Classes (Inheritance/Polymorphism)
-// ==========================================
+
 
 // Base Class for all components
 class Component {
@@ -105,9 +105,9 @@ public:
     ComponentType getType() const override { return VOLTAGE_SOURCE; }
 };
 
-// ==========================================
+
 // 2. Circuit Manager Class (The "Graph")
-// ==========================================
+
 
 class Circuit {
 private:
@@ -189,7 +189,6 @@ public:
 
     // --- Feature: Visualization ---
     void visualizeCircuit();
-    void exportGraphviz();
 };
 
 #endif // CIRCUIT_SOLVER_H
