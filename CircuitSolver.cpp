@@ -6,12 +6,34 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include <algorithm> 
 
 using namespace std;
 
-// =============================================================
+
+// Helper: Numerical Sort Comparator
+
+
+bool compareNodes(const pair<string, int>& a, const pair<string, int>& b) {
+    string s1 = a.first;
+    string s2 = b.first;
+
+    // Check if both are purely numeric
+    bool isNum1 = !s1.empty() && std::all_of(s1.begin(), s1.end(), ::isdigit);
+    bool isNum2 = !s2.empty() && std::all_of(s2.begin(), s2.end(), ::isdigit);
+
+    if (isNum1 && isNum2) {
+        // If lengths differ, the shorter number is smaller (e.g. "2" < "10")
+        if (s1.length() != s2.length()) {
+            return s1.length() < s2.length();
+        }
+    }
+    // Otherwise use standard alphabetical sort (handles "10" vs "20" or "n1" vs "n2")
+    return s1 < s2;
+}
+
 // Helper: Robust Gaussian Elimination
-// =============================================================
+
 vector<double> gaussianElimination(vector<vector<double>> A, vector<double> B) {
     int n = A.size();
     const double EPSILON = 1e-9;
@@ -29,7 +51,7 @@ vector<double> gaussianElimination(vector<vector<double>> A, vector<double> B) {
         swap(B[maxRow], B[i]);
 
         if (abs(A[i][i]) < EPSILON) {
-            throw runtime_error("Singular Matrix detected! The circuit may have floating nodes or invalid loops.");
+            throw runtime_error("Singular Matrix detected! The circuit may have floating nodes, no ground reference, or invalid loops.");
         }
 
         for (int k = i + 1; k < n; k++) {
@@ -52,12 +74,22 @@ vector<double> gaussianElimination(vector<vector<double>> A, vector<double> B) {
     return x;
 }
 
-// =============================================================
 // Circuit::solve() Implementation
-// =============================================================
 void Circuit::solve() {
     try {
         if (nodeCount == 0) throw runtime_error("Circuit is empty. Add components first.");
+
+        // PRE-CHECK: Ensure at least one component connects to Ground (ID 0)
+        bool groundConnected = false;
+        for (const auto& comp : components) {
+            if (comp->nodeA_ID == 0 || comp->nodeB_ID == 0) {
+                groundConnected = true;
+                break;
+            }
+        }
+        if (!groundConnected) {
+            throw runtime_error("No Ground reference! At least one component must connect to node '0' or 'GND'.");
+        }
 
         int vSourceCount = 0;
         for (const auto& comp : components) if (comp->getType() == VOLTAGE_SOURCE) vSourceCount++;
@@ -95,6 +127,8 @@ void Circuit::solve() {
         }
 
         vector<double> result = gaussianElimination(A, B);
+        
+        // Only update voltages if solver succeeded
         for (int i = 0; i < nodeCount; i++) nodeVoltages[i + 1] = result[i];
         cout << "Circuit Solved Successfully!" << endl;
 
@@ -103,9 +137,7 @@ void Circuit::solve() {
     }
 }
 
-// =============================================================
 // Circuit::loadCircuit() Implementation
-// =============================================================
 void Circuit::loadCircuit(const string& filename) {
     ifstream inFile(filename);
     if (!inFile) {
@@ -114,6 +146,10 @@ void Circuit::loadCircuit(const string& filename) {
     }
     try {
         clearCircuit();
+        nodeName_to_ID["0"] = 0;
+        nodeName_to_ID["GND"] = 0;
+        nodeName_to_ID["gnd"] = 0;
+
         string line, type, name, n1, n2;
         double val;
         int count = 0;
@@ -139,27 +175,40 @@ void Circuit::loadCircuit(const string& filename) {
     inFile.close();
 }
 
-// =============================================================
-// Circuit::displayResults() and saveCircuit()
-// =============================================================
+
+// Circuit::displayResults() - FIXED & NUMERICALLY SORTED
+
 void Circuit::displayResults() {
-    if (nodeVoltages.empty()) {
+    if (nodeVoltages.size() <= 1) {
         cout << "No results available. Please solve the circuit first.\n";
         return;
     }
-    cout << "\n--- Simulation Results ---\n";
+
+    // Step 1: Store {NodeName, NodeID} in a vector
+    vector<pair<string, int>> sortedNodes;
     for (const auto& pair : nodeName_to_ID) {
+        sortedNodes.push_back({pair.first, pair.second});
+    }
+
+    // Step 2: Sort using Custom Numerical Comparator
+    sort(sortedNodes.begin(), sortedNodes.end(), compareNodes);
+
+    cout << "\n--- Simulation Results ---\n";
+    for (const auto& pair : sortedNodes) {
         string name = pair.first;
         int id = pair.second;
-        double voltage = nodeVoltages[id];
         
         if (id == 0) continue; 
 
-        cout << "Node [" << name << "]: " 
-             << fixed << setprecision(3) << voltage << " V" << endl;
+        if (nodeVoltages.find(id) != nodeVoltages.end()) {
+            cout << "Node [" << name << "]: " 
+                 << fixed << setprecision(3) << nodeVoltages[id] << " V" << endl;
+        }
     }
     cout << "--------------------------\n";
 }
+
+// Circuit::saveCircuit()
 
 void Circuit::saveCircuit(const string& filename) {
     ofstream outFile(filename);
@@ -167,21 +216,31 @@ void Circuit::saveCircuit(const string& filename) {
         cerr << "Error: Could not save to file " << filename << endl;
         return;
     }
+
+    unordered_map<int, string> id_to_name;
+    for (const auto& pair : nodeName_to_ID) {
+        id_to_name[pair.second] = pair.first;
+    }
+
     for (const auto& comp : components) {
          char typeChar = 'R';
          if (comp->getType() == CURRENT_SOURCE) typeChar = 'I';
          if (comp->getType() == VOLTAGE_SOURCE) typeChar = 'V';
+         
+         string nA = id_to_name[comp->nodeA_ID];
+         string nB = id_to_name[comp->nodeB_ID];
+
          outFile << typeChar << " " << comp->name << " " 
-                 << comp->nodeA_ID << " " << comp->nodeB_ID << " " 
+                 << nA << " " << nB << " " 
                  << comp->value << "\n";
     }
     outFile.close();
     cout << "Circuit saved to " << filename << endl;
 }
 
-// =============================================================
-// Circuit::visualizeCircuit() - Console Graph View
-// =============================================================
+
+// Circuit::visualizeCircuit()
+
 void Circuit::visualizeCircuit() {
     if (nodeName_to_ID.empty()) {
         cout << "Circuit is empty. Nothing to visualize.\n";
@@ -190,7 +249,12 @@ void Circuit::visualizeCircuit() {
 
     cout << "\n====== CIRCUIT GRAPH TOPOLOGY (Adjacency List) ======\n";
     
-    for (const auto& pair : nodeName_to_ID) {
+    // Sort names numerically here too
+    vector<pair<string, int>> sortedNodes;
+    for (const auto& pair : nodeName_to_ID) sortedNodes.push_back({pair.first, pair.second});
+    sort(sortedNodes.begin(), sortedNodes.end(), compareNodes);
+
+    for (const auto& pair : sortedNodes) {
         string currentNodeName = pair.first;
         int currentNodeID = pair.second;
 
@@ -233,32 +297,3 @@ void Circuit::visualizeCircuit() {
     cout << "=====================================================\n";
 }
 
-// =============================================================
-// Circuit::exportGraphviz() - Generate Image Code
-// =============================================================
-void Circuit::exportGraphviz() {
-    if (components.empty()) {
-        cout << "Circuit is empty.\n";
-        return;
-    }
-
-    cout << "\n=== GRAPHVIZ CODE (Paste at webgraphviz.com) ===\n";
-    cout << "graph Circuit {\n";
-    cout << "  rankdir=LR;\n"; 
-    cout << "  node [shape=circle, style=filled, fillcolor=lightblue];\n";
-    
-    for (const auto& comp : components) {
-        string nA, nB;
-        for(const auto& p : nodeName_to_ID) { if(p.second == comp->nodeA_ID) nA = p.first; }
-        for(const auto& p : nodeName_to_ID) { if(p.second == comp->nodeB_ID) nB = p.first; }
-
-        string label = comp->name + "\\n" + to_string((int)comp->value);
-        if (comp->getType() == RESISTOR) label += " Ohm";
-        else if (comp->getType() == VOLTAGE_SOURCE) label += " V";
-        else label += " A";
-
-        cout << "  \"" << nA << "\" -- \"" << nB << "\" [label=\"" << label << "\"];\n";
-    }
-    cout << "}\n";
-    cout << "================================================\n";
-}
